@@ -1,6 +1,5 @@
 const db = require('../config/db');
-const fs = require('fs');
-const path = require('path');
+const cloudinary = require('cloudinary').v2;
 
 // GET semua produk
 const getAllProducts = async (req, res) => {
@@ -77,26 +76,26 @@ const getProductById = async (req, res) => {
 };
 
 // Helper: simpan/update gambar per slot
-const upsertImage = async (productId, slot, filename) => {
+const upsertImage = async (productId, slot, fileUrl) => {
   const [existing] = await db.query(
     'SELECT * FROM product_images WHERE product_id = ? AND slot = ?',
     [productId, slot]
   );
   if (existing.length > 0) {
-    // Hapus file lama dari disk
-    const oldFile = existing[0].filename;
-    if (oldFile) {
-      const oldPath = path.join(__dirname, '../uploads', oldFile);
-      if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+    // Hapus file lama dari Cloudinary
+    const oldUrl = existing[0].filename;
+    if (oldUrl && oldUrl.includes('cloudinary')) {
+      const publicId = oldUrl.split('/').pop().split('.')[0];
+      await cloudinary.uploader.destroy(`azmata/${publicId}`);
     }
     await db.query(
       'UPDATE product_images SET filename = ? WHERE product_id = ? AND slot = ?',
-      [filename, productId, slot]
+      [fileUrl, productId, slot]
     );
   } else {
     await db.query(
       'INSERT INTO product_images (product_id, slot, filename) VALUES (?, ?, ?)',
-      [productId, slot, filename]
+      [productId, slot, fileUrl]
     );
   }
 };
@@ -116,11 +115,10 @@ const createProduct = async (req, res) => {
     );
     const productId = result.insertId;
 
-    // Simpan tiap slot gambar yang diupload
     for (let i = 0; i < 4; i++) {
       const file = req.files?.[`image_${i}`]?.[0];
       if (file) {
-        await upsertImage(productId, i + 1, file.filename);
+        await upsertImage(productId, i + 1, file.path);
       }
     }
 
@@ -146,11 +144,10 @@ const updateProduct = async (req, res) => {
       [name, description, price, stock, category_id || null, req.params.id]
     );
 
-    // Update slot gambar yang dikirim
     for (let i = 0; i < 4; i++) {
       const file = req.files?.[`image_${i}`]?.[0];
       if (file) {
-        await upsertImage(req.params.id, i + 1, file.filename);
+        await upsertImage(req.params.id, i + 1, file.path);
       }
     }
 
@@ -169,15 +166,14 @@ const deleteProduct = async (req, res) => {
       return res.status(404).json({ message: 'Produk tidak ditemukan' });
     }
 
-    // Hapus semua file gambar dari disk
     const [images] = await db.query(
       'SELECT filename FROM product_images WHERE product_id = ?',
       [req.params.id]
     );
     for (const img of images) {
-      if (img.filename) {
-        const imgPath = path.join(__dirname, '../uploads', img.filename);
-        if (fs.existsSync(imgPath)) fs.unlinkSync(imgPath);
+      if (img.filename && img.filename.includes('cloudinary')) {
+        const publicId = img.filename.split('/').pop().split('.')[0];
+        await cloudinary.uploader.destroy(`azmata/${publicId}`);
       }
     }
 

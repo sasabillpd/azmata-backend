@@ -20,7 +20,7 @@ const getProfile = async (req, res) => {
 const updateProfile = async (req, res) => {
   const { first_name, last_name, email, phone } = req.body;
   const name = `${first_name} ${last_name}`.trim();
-  const avatar = req.file ? req.file.filename : null;
+  const avatar = req.file ? req.file.path : null;
 
   try {
     if (avatar) {
