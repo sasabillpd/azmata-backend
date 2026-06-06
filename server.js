@@ -23,7 +23,7 @@ app.use('/api/users',         require('./routes/userRoutes'));
 app.use('/api/categories',    require('./routes/categoryRoutes'));
 app.use('/api/reports',       require('./routes/reportRoutes'));
 app.use('/api/addresses',     require('./routes/addressRoutes'));
-app.use('/api/notifications', require('./routes/notificationRoutes'));
+app.use('/api/notifications', require('./routes/Notificationroutes'));
 app.use('/api/profile',       require('./routes/profileRoutes'));
 app.use('/api/wishlist',      require('./routes/wishlistRoutes'));
 app.use('/api/reviews',       require('./routes/reviewRoutes'));
