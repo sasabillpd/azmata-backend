@@ -178,6 +178,7 @@ const deleteProduct = async (req, res) => {
     }
 
     await db.query('DELETE FROM product_images WHERE product_id = ?', [req.params.id]);
+    await db.query('DELETE FROM order_items WHERE product_id = ?', [req.params.id]);
     await db.query('DELETE FROM products WHERE id = ?', [req.params.id]);
 
     res.json({ message: 'Produk berhasil dihapus' });
