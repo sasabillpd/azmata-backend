@@ -38,7 +38,6 @@ router.patch('/:id/role', protect, superAdminOnly, async (req, res) => {
     return res.status(400).json({ message: 'Role tidak valid' });
   }
 
-  // Super admin tidak boleh ubah role dirinya sendiri
   if (parseInt(req.params.id) === req.user.id) {
     return res.status(400).json({ message: 'Tidak bisa ubah role diri sendiri' });
   }
@@ -53,21 +52,30 @@ router.patch('/:id/role', protect, superAdminOnly, async (req, res) => {
 
 // DELETE user — hanya super_admin
 router.delete('/:id', protect, superAdminOnly, async (req, res) => {
-  // Super admin tidak boleh hapus dirinya sendiri
   if (parseInt(req.params.id) === req.user.id) {
     return res.status(400).json({ message: 'Tidak bisa hapus akun sendiri' });
   }
 
   try {
-    const [result] = await db.query(
-      'DELETE FROM users WHERE id = ? AND role != "super_admin"',
-      [req.params.id]
-    );
-    if (result.affectedRows === 0) {
+    const [users] = await db.query('SELECT * FROM users WHERE id = ?', [req.params.id]);
+    if (users.length === 0 || users[0].role === 'super_admin') {
       return res.status(400).json({ message: 'User tidak ditemukan atau tidak bisa dihapus' });
     }
+
+    const id = req.params.id;
+
+    await db.query('DELETE FROM notifications WHERE user_id = ?', [id]);
+    await db.query('DELETE FROM wishlist WHERE user_id = ?', [id]);
+    await db.query('DELETE FROM reviews WHERE user_id = ?', [id]);
+    await db.query('DELETE FROM payments WHERE order_id IN (SELECT id FROM orders WHERE user_id = ?)', [id]);
+    await db.query('DELETE FROM order_items WHERE order_id IN (SELECT id FROM orders WHERE user_id = ?)', [id]);
+    await db.query('DELETE FROM orders WHERE user_id = ?', [id]);
+    await db.query('DELETE FROM addresses WHERE user_id = ?', [id]);
+    await db.query('DELETE FROM users WHERE id = ?', [id]);
+
     res.json({ message: 'User berhasil dihapus' });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ message: 'Server error' });
   }
 });
