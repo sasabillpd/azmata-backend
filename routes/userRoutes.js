@@ -65,7 +65,6 @@ router.delete('/:id', protect, superAdminOnly, async (req, res) => {
     const id = req.params.id;
 
     await db.query('DELETE FROM notifications WHERE user_id = ?', [id]);
-    await db.query('DELETE FROM wishlist WHERE user_id = ?', [id]);
     await db.query('DELETE FROM reviews WHERE user_id = ?', [id]);
     await db.query('DELETE FROM payments WHERE order_id IN (SELECT id FROM orders WHERE user_id = ?)', [id]);
     await db.query('DELETE FROM order_items WHERE order_id IN (SELECT id FROM orders WHERE user_id = ?)', [id]);
