@@ -304,7 +304,7 @@ const cancelOrder = async (req, res) => {
     }
 
     const order = orders[0];
-    const cancellable = ['Menunggu Pembayaran', 'Menunggu Konfirmasi'];
+    const cancellable = ['Menunggu Pembayaran'];
     if (!cancellable.includes(order.status)) {
       await conn.rollback();
       return res.status(400).json({ message: 'Pesanan tidak dapat dibatalkan pada status ini' });
