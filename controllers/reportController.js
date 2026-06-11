@@ -57,7 +57,7 @@ const getLaporan = async (req, res) => {
     if (from && to) {
       [byMonth] = await db.query(`
         SELECT 
-          DATE_FORMAT(created_at, '%Y-%m-%d') AS bulan,
+          DATE_FORMAT(MIN(created_at), '%a') AS hari,
           COUNT(*)                            AS jumlah_pesanan,
           SUM(total_price)                    AS pendapatan
         FROM orders
@@ -153,10 +153,10 @@ const getDashboardStats = async (req, res) => {
 
     const [salesChart] = await db.query(`
       SELECT 
-        DATE_FORMAT(created_at, '%a') AS hari,
-        DATE(created_at)              AS tanggal,
-        COUNT(*)                      AS jumlah,
-        COALESCE(SUM(total_price), 0) AS pendapatan
+        DATE_FORMAT(MIN(created_at), '%a') AS hari,
+        DATE(created_at)                   AS tanggal,
+        COUNT(*)                           AS jumlah,
+        COALESCE(SUM(total_price), 0)      AS pendapatan
       FROM orders
       WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
         AND status IN ('Selesai', 'Dikirim', 'Diproses')
