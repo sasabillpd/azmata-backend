@@ -362,4 +362,35 @@ const cancelOrder = async (req, res) => {
   }
 };
 
-module.exports = { createOrder, getAllOrders, getMyOrders, getOrderById, updateOrderStatus, cancelOrder };
+// CONFIRM received — oleh customer
+const confirmReceived = async (req, res) => {
+  const order_id = req.params.id;
+  const user_id  = req.user.id;
+
+  try {
+    const [orders] = await db.query(
+      'SELECT * FROM orders WHERE id = ? AND user_id = ?',
+      [order_id, user_id]
+    );
+
+    if (orders.length === 0)
+      return res.status(404).json({ message: 'Pesanan tidak ditemukan' });
+
+    if (orders[0].status !== 'Dikirim')
+      return res.status(400).json({ message: 'Pesanan belum berstatus Dikirim' });
+
+    await db.query(
+      'UPDATE orders SET status = ?, received_at = NOW() WHERE id = ?',
+      ['Selesai', order_id]
+    );
+
+    await sendNotification(user_id, order_id, 'Selesai');
+
+    res.json({ message: 'Pesanan dikonfirmasi selesai' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+module.exports = { createOrder, getAllOrders, getMyOrders, getOrderById, updateOrderStatus, cancelOrder, confirmReceived };

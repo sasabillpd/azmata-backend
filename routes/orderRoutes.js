@@ -16,5 +16,6 @@ router.get('/:id',              protect, getOrderById);
 router.put('/:id/status',       protect, adminOnly, updateOrderStatus);
 router.put('/:id/cancel',       protect, cancelOrder);
 router.post('/:id/payment',     protect, upload.array('bukti', 5), uploadPayment);
+router.patch('/:id/confirm-received', authMiddleware, confirmReceived);
 
 module.exports = router;
