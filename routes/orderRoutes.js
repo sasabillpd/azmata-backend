@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const {
   createOrder, getAllOrders, getMyOrders,
-  getOrderById, updateOrderStatus, cancelOrder
+  getOrderById, updateOrderStatus, cancelOrder, confirmReceived
 } = require('../controllers/orderController');
 const { uploadPayment } = require('../controllers/paymentController');
 const { protect, adminOnly } = require('../middleware/authMiddleware');
@@ -16,6 +16,6 @@ router.get('/:id',              protect, getOrderById);
 router.put('/:id/status',       protect, adminOnly, updateOrderStatus);
 router.put('/:id/cancel',       protect, cancelOrder);
 router.post('/:id/payment',     protect, upload.array('bukti', 5), uploadPayment);
-router.patch('/:id/confirm-received', authMiddleware, confirmReceived);
+router.patch('/:id/confirm-received', protect, confirmReceived);
 
 module.exports = router;
