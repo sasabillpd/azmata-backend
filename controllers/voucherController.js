@@ -80,12 +80,35 @@ exports.validateVoucher = async (req, res) => {
       return res.status(400).json({
         message: `Minimum belanja Rp ${Number(v.min_belanja).toLocaleString('id-ID')} untuk menggunakan voucher ini`,
       });
+      
+    const getWaktuWIB = () => {
+      const now = new Date();
+      const fmt = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Jakarta',
+        hour: '2-digit', minute: '2-digit', hour12: false,
+        weekday: 'long',
+      });
+      const parts = fmt.formatToParts(now);
+      const get = (type) => parts.find(p => p.type === type)?.value;
+
+      const jam    = Number(get('hour'));
+      const menit  = Number(get('minute'));
+      const hariEN = get('weekday').toLowerCase(); // e.g. "monday"
+
+      const MAP_HARI = {
+        sunday: 'minggu', monday: 'senin', tuesday: 'selasa', wednesday: 'rabu',
+        thursday: 'kamis', friday: 'jumat', saturday: 'sabtu',
+      };
+
+      return { totalMenit: jam * 60 + menit, hariIni: MAP_HARI[hariEN] };
+    };
+
+    // pakai di dalam validateVoucher:
+    const { totalMenit, hariIni } = getWaktuWIB();
 
     if (v.jam_mulai && v.jam_selesai) {
-      const now          = new Date();
       const [hMul, mMul] = v.jam_mulai.split(':').map(Number);
       const [hSel, mSel] = v.jam_selesai.split(':').map(Number);
-      const totalMenit   = now.getHours() * 60 + now.getMinutes();
       const mulaiMenit   = hMul * 60 + mMul;
       const selesaiMenit = hSel * 60 + mSel;
       const inRange = mulaiMenit <= selesaiMenit
@@ -97,15 +120,13 @@ exports.validateVoucher = async (req, res) => {
         });
     }
 
-    if (v.hari_berlaku) {
-      const HARI        = ['minggu','senin','selasa','rabu','kamis','jumat','sabtu'];
-      const hariIni     = HARI[new Date().getDay()];
-      const hariBerlaku = v.hari_berlaku.split(',').map(h => h.trim().toLowerCase());
-      if (!hariBerlaku.includes(hariIni))
-        return res.status(400).json({
-          message: `Voucher ini hanya berlaku pada hari: ${v.hari_berlaku}`,
-        });
-    }
+if (v.hari_berlaku) {
+  const hariBerlaku = v.hari_berlaku.split(',').map(h => h.trim().toLowerCase());
+  if (!hariBerlaku.includes(hariIni))
+    return res.status(400).json({
+      message: `Voucher ini hanya berlaku pada hari: ${v.hari_berlaku}`,
+    });
+}
 
     if (v.khusus_baru && userId) {
       const [history] = await db.query(
