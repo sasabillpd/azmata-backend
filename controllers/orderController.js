@@ -1,9 +1,47 @@
 const db = require('../config/db');
 const { sendNotification } = require('./notificationController');
 
+/* ── helper: tentuin berapa hari toleransi sebelum auto-confirm, sesuai wilayah ── */
+const getAutoConfirmDays = (provinsi, kota) => {
+  const p = (provinsi || '').toLowerCase();
+  const k = (kota || '').toLowerCase();
+  const PROVINSI_JAWA = ['jawa barat', 'jawa tengah', 'di yogyakarta', 'dki jakarta', 'banten'];
+  if (p.includes('jawa timur')) {
+    if (k.includes('pasuruan')) return 3;
+    return 5;
+  }
+  if (PROVINSI_JAWA.some(j => p.includes(j))) return 7;
+  return 10;
+};
+
+/* ── helper: auto-confirm order yang statusnya Dikirim & sudah lewat tenggat ── */
+const checkAutoConfirm = async () => {
+  try {
+    const [dikirim] = await db.query(
+      `SELECT id, shipped_at, shipping_province, shipping_city
+       FROM orders WHERE status = 'Dikirim' AND shipped_at IS NOT NULL AND has_komplain = 0`
+    );
+    const now = new Date();
+    for (const o of dikirim) {
+      const days = getAutoConfirmDays(o.shipping_province, o.shipping_city);
+      const deadline = new Date(o.shipped_at);
+      deadline.setDate(deadline.getDate() + days);
+      if (now >= deadline) {
+        await db.query(
+          "UPDATE orders SET status = 'Selesai', received_at = NOW() WHERE id = ?",
+          [o.id]
+        );
+        await sendNotification(null, o.id, 'Selesai (otomatis)');
+      }
+    }
+  } catch (err) {
+    console.error('checkAutoConfirm error:', err);
+  }
+};
+
 // CREATE order baru
 const createOrder = async (req, res) => {
-  const { items, shipping_address, note, shipping_cost = 0, voucher_code } = req.body;
+  const { items, shipping_address, shipping_province, shipping_city, note, shipping_cost = 0, voucher_code } = req.body;
   const user_id = req.user.id;
 
   if (!items || items.length === 0 || !shipping_address) {
@@ -57,9 +95,9 @@ const createOrder = async (req, res) => {
 
     const [orderResult] = await conn.query(
       `INSERT INTO orders
-        (user_id, subtotal, shipping_cost, discount_amount, voucher_code, total_price, shipping_address, note)
-       VALUES (?,?,?,?,?,?,?,?)`,
-      [user_id, subtotal, ongkir, discount_amount, voucher_code || null, total_price, shipping_address, note || null]
+        (user_id, subtotal, shipping_cost, discount_amount, voucher_code, total_price, shipping_address, shipping_province, shipping_city, note)
+      VALUES (?,?,?,?,?,?,?,?,?,?)`,
+      [user_id, subtotal, ongkir, discount_amount, voucher_code || null, total_price, shipping_address, shipping_province || null, shipping_city || null, note || null]
     );
     const order_id = orderResult.insertId;
 
@@ -114,6 +152,8 @@ const createOrder = async (req, res) => {
 // GET semua order (admin)
 const getAllOrders = async (req, res) => {
   try {
+    await checkAutoConfirm();
+
     const { status, date_from, date_to } = req.query;
     let query = `
       SELECT o.*, u.name as customer_name, u.email, u.phone
@@ -145,8 +185,11 @@ const getAllOrders = async (req, res) => {
 };
 
 // GET order milik pelanggan sendiri
+// GET order milik pelanggan sendiri
 const getMyOrders = async (req, res) => {
   try {
+    await checkAutoConfirm();
+
     const [orders] = await db.query(
       `SELECT o.*,
               p.status        as payment_status,
@@ -254,14 +297,12 @@ const updateOrderStatus = async (req, res) => {
     }
 
     if (status === 'Dikirim') {
-      // Simpan kurir + resi sekalian
-      await db.query(
-        'UPDATE orders SET status = ?, kurir = ?, no_resi = ? WHERE id = ?',
-        [status, kurir.trim(), no_resi.trim(), req.params.id]
-      );
+    await db.query(
+      'UPDATE orders SET status = ?, kurir = ?, no_resi = ?, shipped_at = NOW() WHERE id = ?',
+      [status, kurir.trim(), no_resi.trim(), req.params.id]
+    );
     } else {
-      await db.query('UPDATE orders SET status = ? WHERE id = ?', [status, req.params.id]);
-    }
+      await db.query('UPDATE orders SET status = ? WHERE id = ?', [status, req.params.id]);}
 
     // Kirim notifikasi — sertakan info resi kalau status Dikirim
     const notifMessage = status === 'Dikirim'
