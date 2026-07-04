@@ -72,10 +72,12 @@ const confirmPayment = async (req, res) => {
 };
 
 const rejectPayment = async (req, res) => {
-  const { reject_reason } = req.body;
+  const { reject_reason, type } = req.body;
 
   if (!reject_reason)
     return res.status(400).json({ message: 'Alasan penolakan wajib diisi' });
+  if (!['penolakan', 'refund'].includes(type))
+    return res.status(400).json({ message: 'Tipe penolakan tidak valid' });
 
   try {
     const [orders] = await db.query(
@@ -87,6 +89,35 @@ const rejectPayment = async (req, res) => {
 
     const user_id = orders[0].user_id;
 
+    /* ══ TIPE: PENOLAKAN MURNI (tanpa refund) ══ */
+    if (type === 'penolakan') {
+      await db.query(
+        `UPDATE payments SET
+          status        = 'Ditolak',
+          reject_reason = ?,
+          refund_status = NULL,
+          rejected_by   = ?,
+          rejected_at   = NOW()
+         WHERE order_id = ?`,
+        [reject_reason, req.user.id, req.params.order_id]
+      );
+
+      await db.query(
+        "UPDATE orders SET status = 'Menunggu Pembayaran' WHERE id = ?",
+        [req.params.order_id]
+      );
+
+      await db.query(
+        `INSERT INTO notifications (user_id, order_id, title, message, status) VALUES (?, ?, ?, ?, ?)`,
+        [user_id, req.params.order_id, 'Bukti pembayaran ditolak',
+          `Bukti pembayaran pesanan #${String(req.params.order_id).padStart(4, '0')} ditolak (${reject_reason}). Silakan upload ulang bukti transfer yang sesuai.`,
+          'Menunggu']
+      );
+
+      return res.json({ message: 'Pembayaran ditolak, customer diminta upload ulang bukti transfer' });
+    }
+
+    /* ══ TIPE: REFUND (stok habis / lainnya) ══ */
     const [users] = await db.query(
       'SELECT bank_name, bank_account_number, bank_account_name FROM users WHERE id = ?',
       [user_id]
