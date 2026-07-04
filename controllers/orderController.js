@@ -434,4 +434,152 @@ const confirmReceived = async (req, res) => {
   }
 };
 
-module.exports = { createOrder, getAllOrders, getMyOrders, getOrderById, updateOrderStatus, cancelOrder, confirmReceived };
+// SUBMIT KOMPLAIN — oleh customer (status harus Dikirim)
+const submitKomplain = async (req, res) => {
+  const order_id = req.params.id;
+  const user_id  = req.user.id;
+  const { reason } = req.body;
+  const foto = req.file?.path || null;
+
+  if (!reason) return res.status(400).json({ message: 'Alasan komplain wajib diisi' });
+
+  try {
+    const [orders] = await db.query(
+      'SELECT * FROM orders WHERE id = ? AND user_id = ?',
+      [order_id, user_id]
+    );
+    if (orders.length === 0)
+      return res.status(404).json({ message: 'Pesanan tidak ditemukan' });
+
+    const order = orders[0];
+    if (order.status !== 'Dikirim')
+      return res.status(400).json({ message: 'Komplain hanya bisa diajukan untuk pesanan berstatus Dikirim' });
+
+    if (order.has_komplain)
+      return res.status(400).json({ message: 'Pesanan ini sudah memiliki komplain yang sedang diproses' });
+
+    await db.query(
+      `UPDATE orders SET
+        has_komplain    = 1,
+        komplain_reason = ?,
+        komplain_foto   = ?,
+        komplain_at     = NOW(),
+        komplain_status = 'Menunggu'
+       WHERE id = ?`,
+      [reason, foto, order_id]
+    );
+
+    // Notifikasi ke admin (pakai user_id null, biar semua admin bisa lihat — sesuaikan kalau sistem notif kamu beda)
+    await db.query(
+      `INSERT INTO notifications (user_id, order_id, title, message, status) VALUES (?, ?, ?, ?, ?)`,
+      [user_id, order_id, 'Komplain terkirim',
+        `Komplain untuk pesanan #${String(order_id).padStart(4, '0')} sudah kami terima dan akan segera diproses.`,
+        'Menunggu']
+    );
+
+    res.json({ message: 'Komplain berhasil dikirim, tim kami akan segera menindaklanjuti' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// GET semua komplain — admin
+const getAllKomplain = async (req, res) => {
+  try {
+    const { status } = req.query; // Menunggu | Diproses | Selesai
+    let query = `
+      SELECT o.*, u.name as customer_name, u.email, u.phone
+      FROM orders o JOIN users u ON o.user_id = u.id
+      WHERE o.has_komplain = 1
+    `;
+    const params = [];
+    if (status) { query += ' AND o.komplain_status = ?'; params.push(status); }
+    query += ' ORDER BY o.komplain_at DESC';
+
+    const [rows] = await db.query(query, params);
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// RESOLVE komplain — admin
+const resolveKomplain = async (req, res) => {
+  const order_id = req.params.id;
+  const { action, catatan } = req.body;
+
+  if (!['refund', 'kirim_ulang', 'tolak'].includes(action))
+    return res.status(400).json({ message: 'Aksi tidak valid' });
+
+  try {
+    const [orders] = await db.query('SELECT * FROM orders WHERE id = ?', [order_id]);
+    if (orders.length === 0) return res.status(404).json({ message: 'Pesanan tidak ditemukan' });
+    const order = orders[0];
+
+    if (!order.has_komplain)
+      return res.status(400).json({ message: 'Pesanan ini tidak memiliki komplain' });
+
+    if (action === 'refund') {
+      const [users] = await db.query(
+        'SELECT bank_name, bank_account_number, bank_account_name FROM users WHERE id = ?',
+        [order.user_id]
+      );
+      const u = users[0];
+      const refund_bank      = u?.bank_name           || null;
+      const refund_rekening  = u?.bank_account_number || null;
+      const refund_atas_nama = u?.bank_account_name   || null;
+      const refund_status = refund_rekening ? 'Menunggu Konfirmasi Super Admin' : 'Menunggu Rekening';
+
+      await db.query(
+        `UPDATE payments SET
+          refund_bank = ?, refund_rekening = ?, refund_atas_nama = ?, refund_status = ?
+         WHERE order_id = ?`,
+        [refund_bank, refund_rekening, refund_atas_nama, refund_status, order_id]
+      );
+
+      await db.query(
+        "UPDATE orders SET status = 'Dibatalkan', cancel_reason = ?, komplain_status = 'Selesai' WHERE id = ?",
+        [`Komplain: ${order.komplain_reason}`, order_id]
+      );
+
+      await db.query(
+        `INSERT INTO notifications (user_id, order_id, title, message, status) VALUES (?, ?, ?, ?, ?)`,
+        [order.user_id, order_id, 'Komplain disetujui — refund diproses',
+          catatan || 'Komplain kamu disetujui, refund sedang diproses tim kami.', 'Menunggu']
+      );
+
+    } else if (action === 'kirim_ulang') {
+      await db.query(
+        "UPDATE orders SET komplain_status = 'Selesai', has_komplain = 0 WHERE id = ?",
+        [order_id]
+      );
+      await db.query(
+        `INSERT INTO notifications (user_id, order_id, title, message, status) VALUES (?, ?, ?, ?, ?)`,
+        [order.user_id, order_id, 'Komplain diproses — barang dikirim ulang',
+          catatan || 'Tim kami akan mengirim ulang pesanan kamu.', 'Menunggu']
+      );
+
+    } else { // tolak
+      await db.query(
+        "UPDATE orders SET komplain_status = 'Selesai', has_komplain = 0 WHERE id = ?",
+        [order_id]
+      );
+      await db.query(
+        `INSERT INTO notifications (user_id, order_id, title, message, status) VALUES (?, ?, ?, ?, ?)`,
+        [order.user_id, order_id, 'Komplain ditolak',
+          catatan || 'Setelah ditinjau, komplain kamu tidak dapat kami proses.', 'Menunggu']
+      );
+    }
+
+    res.json({ message: 'Komplain berhasil ditindaklanjuti' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+module.exports = {
+  createOrder, getAllOrders, getMyOrders, getOrderById, updateOrderStatus, cancelOrder, confirmReceived,
+  submitKomplain, getAllKomplain, resolveKomplain,
+};
