@@ -251,7 +251,7 @@ const getOrderById = async (req, res) => {
     if (orders.length === 0) return res.status(404).json({ message: 'Pesanan tidak ditemukan' });
 
     const order = orders[0];
-    if (req.user.role !== 'admin' && order.user_id !== req.user.id) {
+    if (!['admin', 'super_admin'].includes(req.user.role) && order.user_id !== req.user.id) {
       return res.status(403).json({ message: 'Akses ditolak' });
     }
 
@@ -506,6 +506,7 @@ const getAllKomplain = async (req, res) => {
 };
 
 // RESOLVE komplain — admin
+// RESOLVE komplain — admin
 const resolveKomplain = async (req, res) => {
   const order_id = req.params.id;
   const { action, catatan } = req.body;
@@ -534,6 +535,7 @@ const resolveKomplain = async (req, res) => {
 
       await db.query(
         `UPDATE payments SET
+          status = 'Ditolak',
           refund_bank = ?, refund_rekening = ?, refund_atas_nama = ?, refund_status = ?
          WHERE order_id = ?`,
         [refund_bank, refund_rekening, refund_atas_nama, refund_status, order_id]
